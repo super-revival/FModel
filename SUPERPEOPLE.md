@@ -1,6 +1,7 @@
 # Super People support
 
 The pinned CUE4Parse submodule is extended by `patches/CUE4Parse-superpeople.patch`.
+It includes pak decryption, legacy Mutable support, and export fixes.
 GitHub Actions applies it before tests and publishing. For a source checkout,
 run `git -C CUE4Parse apply ../patches/CUE4Parse-superpeople.patch` once.
 

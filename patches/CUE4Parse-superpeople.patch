@@ -1,87 +1,6 @@
---- a/CUE4Parse/UE4/Versions/EGame.cs
-+++ b/CUE4Parse/UE4/Versions/EGame.cs
-@@ -98,6 +98,7 @@
-         GAME_Placeholder3 = GAME_UE4_25 + 13,
-         GAME_Back4Blood = GAME_UE4_25 + 14, // UE 4.25 Plus
-         GAME_NiNoKuniCrossWorlds = GAME_UE4_25 + 15,
-+        GAME_SuperPeople = GAME_UE4_25 + 16,
-     GAME_UE4_26 = GameUtils.GameUe4Base + (26 << 16),
-         GAME_GTATheTrilogyDefinitiveEdition = GAME_UE4_26 + 1,
-         GAME_UE4_26_Plus = GAME_UE4_26 + 2,
---- a/CUE4Parse/FileProvider/Vfs/AbstractVfsFileProvider.cs
-+++ b/CUE4Parse/FileProvider/Vfs/AbstractVfsFileProvider.cs
-@@ -78,6 +78,7 @@
-                     or GAME_Splitgate2 or GAME_Empulse => CustomAesKeyExpansion.DecryptWithRoundKeys,
- 
-                 GAME_ApexLegendsMobile => ApexLegendsMobileAes.DecryptApexMobile,
-+                GAME_SuperPeople => CUE4Parse.GameTypes.SuperPeople.Encryption.Aes.SuperPeopleAes.Decrypt,
-                 GAME_Snowbreak => SnowbreakAes.SnowbreakDecrypt,
-                 GAME_MarvelRivals or GAME_TamasShadowveil => NetEaseAes.NetEaseDecrypt,
-                 GAME_Undawn => ToaaAes.ToaaDecrypt,
---- /dev/null
-+++ b/CUE4Parse/GameTypes/SuperPeople/Encryption/Aes/SuperPeopleAes.cs
-@@ -0,0 +1,61 @@
-+using System.Buffers.Binary;
-+using System.Numerics;
-+using CUE4Parse.Encryption.Aes;
-+using CUE4Parse.UE4.VirtualFileSystem;
-+
-+namespace CUE4Parse.GameTypes.SuperPeople.Encryption.Aes;
-+
-+public static class SuperPeopleAes
-+{
-+    // Ciphertext substitution from spiritovod's Super People QuickBMS decryptAll.
-+    private static ReadOnlySpan<byte> Substitution =>
-+    [
-+        0x3A, 0x04, 0xA2, 0x92, 0x41, 0x91, 0x2A, 0x09, 0xF3, 0xD3, 0xF7, 0x70, 0x93, 0x78, 0xDB, 0xAB,
-+        0x9C, 0x6D, 0xA5, 0x39, 0x2B, 0xDF, 0xE7, 0xC6, 0x26, 0x75, 0x64, 0x79, 0x0A, 0x84, 0xA1, 0xDE,
-+        0x80, 0xB3, 0x4B, 0xE8, 0x13, 0x5A, 0x77, 0x17, 0x34, 0xE3, 0x1F, 0x45, 0xB0, 0xA7, 0x69, 0x7B,
-+        0xDC, 0x9E, 0xD8, 0x9A, 0x38, 0xA3, 0xFB, 0xAC, 0x0B, 0x6E, 0x68, 0x96, 0x15, 0x7E, 0xFC, 0x89,
-+        0x03, 0x57, 0x42, 0xBF, 0xE0, 0x8D, 0x32, 0x3F, 0x0D, 0xFF, 0xA9, 0x62, 0x16, 0xB9, 0xD0, 0xD1,
-+        0xFA, 0xEF, 0xC7, 0x01, 0x20, 0x0C, 0xE5, 0x8F, 0xF9, 0x44, 0x4F, 0xEC, 0x6F, 0xD7, 0x12, 0x60,
-+        0xC2, 0x1A, 0x36, 0xA6, 0x3C, 0x08, 0xF1, 0x1E, 0x2F, 0x29, 0x65, 0x82, 0x5F, 0x87, 0x6A, 0x50,
-+        0x81, 0x18, 0xF4, 0xBD, 0x99, 0x53, 0x35, 0xE4, 0xC8, 0x37, 0x1C, 0xBE, 0xAE, 0x97, 0xC9, 0x3D,
-+        0x49, 0x48, 0x52, 0x98, 0xDA, 0xF0, 0x8E, 0xE2, 0x86, 0x8C, 0x31, 0x4C, 0x95, 0x2E, 0xD6, 0xCB,
-+        0xC0, 0xF5, 0x72, 0xB7, 0x7D, 0xEA, 0xFD, 0x1B, 0x94, 0xBB, 0x56, 0xF6, 0x30, 0xF2, 0xE6, 0xED,
-+        0x8A, 0x0F, 0x4D, 0xB8, 0xB6, 0xB4, 0xFE, 0x2D, 0xB1, 0x47, 0x67, 0x1D, 0x4E, 0x54, 0x33, 0x05,
-+        0x66, 0x10, 0x73, 0xC4, 0xCA, 0x9B, 0xF8, 0xE1, 0x5D, 0xD9, 0x58, 0x59, 0x23, 0x22, 0x02, 0xAF,
-+        0x27, 0xD5, 0x7F, 0x4A, 0xE9, 0xC3, 0x3B, 0x5B, 0xBC, 0xC5, 0x71, 0x21, 0x9F, 0x61, 0x90, 0xA4,
-+        0x74, 0xCD, 0xB5, 0x83, 0xC1, 0xA8, 0x6B, 0x85, 0x0E, 0x3E, 0x40, 0xCC, 0xAA, 0x9D, 0x51, 0xAD,
-+        0x55, 0x19, 0x25, 0x46, 0x88, 0x7A, 0x11, 0xEB, 0x06, 0xCE, 0x24, 0x5E, 0xD4, 0x7C, 0x8B, 0x28,
-+        0xBA, 0xA0, 0x6C, 0x00, 0x14, 0x76, 0x43, 0xEE, 0xDD, 0xCF, 0xB2, 0x63, 0x5C, 0x07, 0x2C, 0xD2,
-+    ];
-+
-+    public static byte[] Decrypt(byte[] bytes, int beginOffset, int count, bool isIndex,
-+        IAesVfsReader reader, object? customData = null)
-+        => Decrypt(bytes, beginOffset, count,
-+            reader.AesKey ?? throw new InvalidOperationException("Super People decryption requires an AES key."));
-+
-+    public static byte[] Decrypt(byte[] bytes, int beginOffset, int count, FAesKey key)
-+    {
-+        ArgumentOutOfRangeException.ThrowIfNegative(beginOffset);
-+        ArgumentOutOfRangeException.ThrowIfNegative(count);
-+        if (beginOffset > bytes.Length - count)
-+            throw new ArgumentException("The requested range exceeds the input buffer.", nameof(count));
-+        if (count % 16 != 0)
-+            throw new ArgumentException("Super People ciphertext must contain complete AES blocks.", nameof(count));
-+
-+        var result = bytes.AsSpan(beginOffset, count).ToArray();
-+        var substitution = Substitution;
-+        for (var i = 0; i < result.Length; i++)
-+            result[i] = substitution[result[i]];
-+
-+        result.DecryptInPlace(key);
-+        for (var i = 0; i < result.Length; i += 16)
-+        {
-+            var block = result.AsSpan(i, 16);
-+            var first = BinaryPrimitives.ReadUInt64LittleEndian(block);
-+            var second = BinaryPrimitives.ReadUInt64LittleEndian(block[8..]);
-+            BinaryPrimitives.WriteUInt64LittleEndian(block, BitOperations.RotateLeft(first, 53));
-+            BinaryPrimitives.WriteUInt64LittleEndian(block[8..], BitOperations.RotateLeft(second, 41));
-+        }
-+        return result;
-+    }
-+}
+diff --git a/CUE4Parse.Tests/Encryption/SuperPeopleAesTests.cs b/CUE4Parse.Tests/Encryption/SuperPeopleAesTests.cs
+new file mode 100644
+index 0000000000000000000000000000000000000000..241d75639e161376397e3f71a585b095d7603a49
 --- /dev/null
 +++ b/CUE4Parse.Tests/Encryption/SuperPeopleAesTests.cs
 @@ -0,0 +1,65 @@
@@ -150,3 +69,852 @@
 +        Assert.Equal("Synthetic asset!"u8.ToArray(), file.Read());
 +    }
 +}
+diff --git a/CUE4Parse/FileProvider/Vfs/AbstractVfsFileProvider.cs b/CUE4Parse/FileProvider/Vfs/AbstractVfsFileProvider.cs
+index 0f345e11a9d95cc7c63427c525296e6cc793515b..a843275f921571127ea2dcb6d6f2f493bd3d300c 100644
+--- a/CUE4Parse/FileProvider/Vfs/AbstractVfsFileProvider.cs
++++ b/CUE4Parse/FileProvider/Vfs/AbstractVfsFileProvider.cs
+@@ -78,6 +78,7 @@ GAME_PaxDei or GAME_3on3FreeStyleRebound or GAME_FunkoFusion
+                     or GAME_Splitgate2 or GAME_Empulse => CustomAesKeyExpansion.DecryptWithRoundKeys,
+ 
+                 GAME_ApexLegendsMobile => ApexLegendsMobileAes.DecryptApexMobile,
++                GAME_SuperPeople => CUE4Parse.GameTypes.SuperPeople.Encryption.Aes.SuperPeopleAes.Decrypt,
+                 GAME_Snowbreak => SnowbreakAes.SnowbreakDecrypt,
+                 GAME_MarvelRivals or GAME_TamasShadowveil => NetEaseAes.NetEaseDecrypt,
+                 GAME_Undawn => ToaaAes.ToaaDecrypt,
+diff --git a/CUE4Parse/GameTypes/SuperPeople/Encryption/Aes/SuperPeopleAes.cs b/CUE4Parse/GameTypes/SuperPeople/Encryption/Aes/SuperPeopleAes.cs
+new file mode 100644
+index 0000000000000000000000000000000000000000..a082f6bad9dc6fe8b646544dff6147bc8adf9fe7
+--- /dev/null
++++ b/CUE4Parse/GameTypes/SuperPeople/Encryption/Aes/SuperPeopleAes.cs
+@@ -0,0 +1,61 @@
++using System.Buffers.Binary;
++using System.Numerics;
++using CUE4Parse.Encryption.Aes;
++using CUE4Parse.UE4.VirtualFileSystem;
++
++namespace CUE4Parse.GameTypes.SuperPeople.Encryption.Aes;
++
++public static class SuperPeopleAes
++{
++    // Ciphertext substitution from spiritovod's Super People QuickBMS decryptAll.
++    private static ReadOnlySpan<byte> Substitution =>
++    [
++        0x3A, 0x04, 0xA2, 0x92, 0x41, 0x91, 0x2A, 0x09, 0xF3, 0xD3, 0xF7, 0x70, 0x93, 0x78, 0xDB, 0xAB,
++        0x9C, 0x6D, 0xA5, 0x39, 0x2B, 0xDF, 0xE7, 0xC6, 0x26, 0x75, 0x64, 0x79, 0x0A, 0x84, 0xA1, 0xDE,
++        0x80, 0xB3, 0x4B, 0xE8, 0x13, 0x5A, 0x77, 0x17, 0x34, 0xE3, 0x1F, 0x45, 0xB0, 0xA7, 0x69, 0x7B,
++        0xDC, 0x9E, 0xD8, 0x9A, 0x38, 0xA3, 0xFB, 0xAC, 0x0B, 0x6E, 0x68, 0x96, 0x15, 0x7E, 0xFC, 0x89,
++        0x03, 0x57, 0x42, 0xBF, 0xE0, 0x8D, 0x32, 0x3F, 0x0D, 0xFF, 0xA9, 0x62, 0x16, 0xB9, 0xD0, 0xD1,
++        0xFA, 0xEF, 0xC7, 0x01, 0x20, 0x0C, 0xE5, 0x8F, 0xF9, 0x44, 0x4F, 0xEC, 0x6F, 0xD7, 0x12, 0x60,
++        0xC2, 0x1A, 0x36, 0xA6, 0x3C, 0x08, 0xF1, 0x1E, 0x2F, 0x29, 0x65, 0x82, 0x5F, 0x87, 0x6A, 0x50,
++        0x81, 0x18, 0xF4, 0xBD, 0x99, 0x53, 0x35, 0xE4, 0xC8, 0x37, 0x1C, 0xBE, 0xAE, 0x97, 0xC9, 0x3D,
++        0x49, 0x48, 0x52, 0x98, 0xDA, 0xF0, 0x8E, 0xE2, 0x86, 0x8C, 0x31, 0x4C, 0x95, 0x2E, 0xD6, 0xCB,
++        0xC0, 0xF5, 0x72, 0xB7, 0x7D, 0xEA, 0xFD, 0x1B, 0x94, 0xBB, 0x56, 0xF6, 0x30, 0xF2, 0xE6, 0xED,
++        0x8A, 0x0F, 0x4D, 0xB8, 0xB6, 0xB4, 0xFE, 0x2D, 0xB1, 0x47, 0x67, 0x1D, 0x4E, 0x54, 0x33, 0x05,
++        0x66, 0x10, 0x73, 0xC4, 0xCA, 0x9B, 0xF8, 0xE1, 0x5D, 0xD9, 0x58, 0x59, 0x23, 0x22, 0x02, 0xAF,
++        0x27, 0xD5, 0x7F, 0x4A, 0xE9, 0xC3, 0x3B, 0x5B, 0xBC, 0xC5, 0x71, 0x21, 0x9F, 0x61, 0x90, 0xA4,
++        0x74, 0xCD, 0xB5, 0x83, 0xC1, 0xA8, 0x6B, 0x85, 0x0E, 0x3E, 0x40, 0xCC, 0xAA, 0x9D, 0x51, 0xAD,
++        0x55, 0x19, 0x25, 0x46, 0x88, 0x7A, 0x11, 0xEB, 0x06, 0xCE, 0x24, 0x5E, 0xD4, 0x7C, 0x8B, 0x28,
++        0xBA, 0xA0, 0x6C, 0x00, 0x14, 0x76, 0x43, 0xEE, 0xDD, 0xCF, 0xB2, 0x63, 0x5C, 0x07, 0x2C, 0xD2,
++    ];
++
++    public static byte[] Decrypt(byte[] bytes, int beginOffset, int count, bool isIndex,
++        IAesVfsReader reader, object? customData = null)
++        => Decrypt(bytes, beginOffset, count,
++            reader.AesKey ?? throw new InvalidOperationException("Super People decryption requires an AES key."));
++
++    public static byte[] Decrypt(byte[] bytes, int beginOffset, int count, FAesKey key)
++    {
++        ArgumentOutOfRangeException.ThrowIfNegative(beginOffset);
++        ArgumentOutOfRangeException.ThrowIfNegative(count);
++        if (beginOffset > bytes.Length - count)
++            throw new ArgumentException("The requested range exceeds the input buffer.", nameof(count));
++        if (count % 16 != 0)
++            throw new ArgumentException("Super People ciphertext must contain complete AES blocks.", nameof(count));
++
++        var result = bytes.AsSpan(beginOffset, count).ToArray();
++        var substitution = Substitution;
++        for (var i = 0; i < result.Length; i++)
++            result[i] = substitution[result[i]];
++
++        result.DecryptInPlace(key);
++        for (var i = 0; i < result.Length; i += 16)
++        {
++            var block = result.AsSpan(i, 16);
++            var first = BinaryPrimitives.ReadUInt64LittleEndian(block);
++            var second = BinaryPrimitives.ReadUInt64LittleEndian(block[8..]);
++            BinaryPrimitives.WriteUInt64LittleEndian(block, BitOperations.RotateLeft(first, 53));
++            BinaryPrimitives.WriteUInt64LittleEndian(block[8..], BitOperations.RotateLeft(second, 41));
++        }
++        return result;
++    }
++}
+diff --git a/CUE4Parse/UE4/Assets/Exports/Animation/UAnimSequence.cs b/CUE4Parse/UE4/Assets/Exports/Animation/UAnimSequence.cs
+index 18dd77170d32abdab4214aac6c61415b7b159e37..75da945c696997d49e0eded65df02e9996048454 100644
+--- a/CUE4Parse/UE4/Assets/Exports/Animation/UAnimSequence.cs
++++ b/CUE4Parse/UE4/Assets/Exports/Animation/UAnimSequence.cs
+@@ -148,7 +148,13 @@ public override void Deserialize(FAssetArchive Ar, long validPos)
+                 //    CurveCompressionSettings = new ResolvedLoadedObject(Owner!.Provider!.LoadPackageObject("/Game/DSCore/Animation/DA_AnimCurveCompressionSettings.DA_AnimCurveCompressionSettings"));
+                 //}
+ 
+-                if (!string.IsNullOrEmpty(CurveCodecPath) && CurveCompressionSettings?.Load<UAnimCurveCompressionSettings>()?.GetCodec(CurveCodecPath) is { } codec)
++                var curveSettings = CurveCompressionSettings?.Load<UAnimCurveCompressionSettings>();
++                // Cooked sequences omit CurveCompressionSettings when it matches the class default, the codec path still names its settings asset
++                if (curveSettings == null && !string.IsNullOrEmpty(CurveCodecPath) &&
++                    Owner?.Provider?.TryLoadPackageObject<UAnimCurveCompressionSettings>(CurveCodecPath.SubstringBefore(':'), out var defaultCurveSettings) == true)
++                    curveSettings = defaultCurveSettings;
++
++                if (!string.IsNullOrEmpty(CurveCodecPath) && curveSettings?.GetCodec(CurveCodecPath) is { } codec)
+                 {
+                     CompressedCurveData = new FRawCurveTracks(codec.ConvertCurves(CompressedCurveNames, CompressedCurveByteStream));
+                 }
+diff --git a/CUE4Parse/UE4/Assets/Exports/CustomizableObject/Mutable/Legacy/EMutableLegacyOpType.cs b/CUE4Parse/UE4/Assets/Exports/CustomizableObject/Mutable/Legacy/EMutableLegacyOpType.cs
+new file mode 100644
+index 0000000000000000000000000000000000000000..f9109db493605b145d298049c0d1f6f13133b911
+--- /dev/null
++++ b/CUE4Parse/UE4/Assets/Exports/CustomizableObject/Mutable/Legacy/EMutableLegacyOpType.cs
+@@ -0,0 +1,127 @@
++namespace CUE4Parse.UE4.Assets.Exports.CustomizableObject.Mutable.Legacy;
++
++/** mu::OP_TYPE of the pre-Epic (Anticto 1.x, UE4) Mutable runtime. Each op in the byte code starts with this 16-bit type. */
++public enum EMutableLegacyOpType : ushort
++{
++    NONE = 0,
++    BO_CONSTANT = 1,
++    NU_CONSTANT = 2,
++    SC_CONSTANT = 3,
++    CO_CONSTANT = 4,
++    IM_CONSTANT = 5,
++    VO_CONSTANT = 6,
++    ME_CONSTANT = 7,
++    LA_CONSTANT = 8,
++    PR_CONSTANT = 9,
++    BO_PARAMETER = 10,
++    NU_PARAMETER = 11,
++    SC_PARAMETER = 12,
++    CO_PARAMETER = 13,
++    PR_PARAMETER = 14,
++    IM_PARAMETER = 15,
++    NU_CONDITIONAL = 16,
++    SC_CONDITIONAL = 17,
++    CO_CONDITIONAL = 18,
++    IM_CONDITIONAL = 19,
++    ME_CONDITIONAL = 20,
++    LA_CONDITIONAL = 21,
++    IN_CONDITIONAL = 22,
++    NU_SWITCH = 23,
++    SC_SWITCH = 24,
++    CO_SWITCH = 25,
++    IM_SWITCH = 26,
++    VO_SWITCH = 27,
++    ME_SWITCH = 28,
++    LA_SWITCH = 29,
++    IN_SWITCH = 30,
++    BO_LESS = 31,
++    BO_EQUAL_INT_CONST = 32,
++    BO_AND = 33,
++    BO_OR = 34,
++    BO_NOT = 35,
++    SC_MULTIPLYADD = 36,
++    SC_ARITHMETIC = 37,
++    SC_CURVE = 38,
++    CO_SAMPLEIMAGE = 39,
++    CO_SWIZZLE = 40,
++    CO_IMAGESIZE = 41,
++    CO_LAYOUTBLOCKTRANSFORM = 42,
++    CO_FROMSCALARS = 43,
++    CO_ARITHMETIC = 44,
++    IM_BLEND = 45,
++    IM_BLENDCOLOUR = 46,
++    IM_SOFTLIGHT = 47,
++    IM_SOFTLIGHTCOLOUR = 48,
++    IM_HARDLIGHT = 49,
++    IM_HARDLIGHTCOLOUR = 50,
++    IM_BURN = 51,
++    IM_BURNCOLOUR = 52,
++    IM_DODGE = 53,
++    IM_DODGECOLOUR = 54,
++    IM_SCREEN = 55,
++    IM_SCREENCOLOUR = 56,
++    IM_OVERLAY = 57,
++    IM_LIGHTEN = 58,
++    IM_OVERLAYCOLOUR = 59,
++    IM_LIGHTENCOLOUR = 60,
++    IM_MULTIPLY = 61,
++    IM_MULTIPLYCOLOUR = 62,
++    IM_PIXELFORMAT = 63,
++    IM_MIPMAP = 64,
++    IM_RESIZE = 65,
++    IM_RESIZELIKE = 66,
++    IM_RESIZEVARIABLE = 67,
++    IM_RESIZEREL = 68,
++    IM_BLANKLAYOUT = 69,
++    IM_COMPOSE = 70,
++    IM_DIFFERENCE = 71,
++    IM_INTERPOLATE = 72,
++    IM_INTERPOLATE3 = 73,
++    IM_SATURATE = 74,
++    IM_LUMINANCE = 75,
++    IM_SWIZZLE = 76,
++    IM_SELECTCOLOUR = 77,
++    IM_COLOURMAP = 78,
++    IM_GRADIENT = 79,
++    IM_VOLUMELAYER = 80,
++    IM_BINARISE = 81,
++    IM_PLAINCOLOUR = 82,
++    IM_GPU = 83,
++    IM_CROP = 84,
++    IM_PATCH = 85,
++    IM_RASTERMESH = 86,
++    IM_MAKEGROWMAP = 87,
++    IM_DISPLACE = 88,
++    IM_MULTILAYER = 89,
++    IM_INVERT = 90,
++    ME_APPLYLAYOUT = 91,
++    ME_DIFFERENCE = 92,
++    ME_MORPH = 93,
++    ME_MORPH2 = 94,
++    ME_MERGE = 95,
++    ME_INTERPOLATE = 96,
++    ME_MASKCLIPMESH = 97,
++    ME_MASKDIFF = 98,
++    ME_SUBTRACT = 99,
++    ME_REMOVEMASK = 100,
++    ME_FORMAT = 101,
++    ME_EXTRACTLAYOUTBLOCK = 102,
++    ME_EXTRACTFACEGROUP = 103,
++    ME_TRANSFORM = 104,
++    ME_CLIPMORPHPLANE = 105,
++    ME_CLIPWITHMESH = 106,
++    ME_SETSKELETON = 107,
++    ME_PROJECT = 108,
++    ME_APPLYPOSE = 109,
++    IN_ADDMESH = 110,
++    IN_ADDIMAGE = 111,
++    IN_ADDVECTOR = 112,
++    IN_ADDSCALAR = 113,
++    IN_ADDSURFACE = 114,
++    IN_ADDCOMPONENT = 115,
++    IN_ADDLOD = 116,
++    LA_PACK = 117,
++    LA_MERGE = 118,
++    LA_REMOVEBLOCKS = 119,
++    LA_REMOVEBLOCKSMESH = 120,
++}
+diff --git a/CUE4Parse/UE4/Assets/Exports/CustomizableObject/Mutable/Legacy/FMutableLegacyDescEntry.cs b/CUE4Parse/UE4/Assets/Exports/CustomizableObject/Mutable/Legacy/FMutableLegacyDescEntry.cs
+new file mode 100644
+index 0000000000000000000000000000000000000000..ffe656323d34f8a7caca7c9f09d06a8bdc3f161b
+--- /dev/null
++++ b/CUE4Parse/UE4/Assets/Exports/CustomizableObject/Mutable/Legacy/FMutableLegacyDescEntry.cs
+@@ -0,0 +1,40 @@
++using CUE4Parse.UE4.Assets.Readers;
++
++namespace CUE4Parse.UE4.Assets.Exports.CustomizableObject.Mutable.Legacy;
++
++/** Description entry serialised with the pre-Epic mu::PROGRAM but never read by the runtime (member names are descriptive). */
++public class FMutableLegacyDescEntry
++{
++    public int Type;
++    public string Name;
++    public string UID;
++    public int Value0;
++    public int Value1;
++    public FMutableLegacyNamedIndex[] List0;
++    public FMutableLegacyNamedIndex[] List1;
++    public FMutableLegacyNamedIndex[] List2;
++
++    public FMutableLegacyDescEntry(FMutableArchive Ar)
++    {
++        Type = Ar.Read<int>();
++        Name = Ar.ReadString();
++        UID = Ar.ReadString();
++        Value0 = Ar.Read<int>();
++        Value1 = Ar.Read<int>();
++        List0 = Ar.ReadArray(() => new FMutableLegacyNamedIndex(Ar));
++        List1 = Ar.ReadArray(() => new FMutableLegacyNamedIndex(Ar));
++        List2 = Ar.ReadArray(() => new FMutableLegacyNamedIndex(Ar));
++    }
++}
++
++public class FMutableLegacyNamedIndex
++{
++    public int Index;
++    public string Name;
++
++    public FMutableLegacyNamedIndex(FMutableArchive Ar)
++    {
++        Index = Ar.Read<int>();
++        Name = Ar.ReadString();
++    }
++}
+diff --git a/CUE4Parse/UE4/Assets/Exports/CustomizableObject/Mutable/Legacy/FMutableLegacyLayout.cs b/CUE4Parse/UE4/Assets/Exports/CustomizableObject/Mutable/Legacy/FMutableLegacyLayout.cs
+new file mode 100644
+index 0000000000000000000000000000000000000000..3b3a17d036b96c82da4887eba2c28ff2b380015e
+--- /dev/null
++++ b/CUE4Parse/UE4/Assets/Exports/CustomizableObject/Mutable/Legacy/FMutableLegacyLayout.cs
+@@ -0,0 +1,55 @@
++using CUE4Parse.UE4.Assets.Exports.CustomizableObject.Mutable.Mesh.Layout;
++using CUE4Parse.UE4.Assets.Readers;
++using CUE4Parse.UE4.Objects.Core.Math;
++using Newtonsoft.Json;
++
++namespace CUE4Parse.UE4.Assets.Exports.CustomizableObject.Mutable.Legacy;
++
++/** mu::Layout (versions 0-2) of the pre-Epic Mutable runtime. */
++public class FMutableLegacyLayout
++{
++    [JsonIgnore] public int Version;
++    public FIntVector2 Size;
++    public FIntVector2 MaxSize;
++    public EPackStrategy Strategy;
++    public FMutableLegacyLayoutBlock[] Blocks;
++
++    public FMutableLegacyLayout(FMutableArchive Ar)
++    {
++        Version = Ar.Read<int>();
++        var size = Ar.Read<TIntVector2<ushort>>();
++        Size = new FIntVector2(size.X, size.Y);
++        Blocks = Ar.ReadArray(() => new FMutableLegacyLayoutBlock(Ar, Version));
++        if (Version >= 2)
++        {
++            var maxSize = Ar.Read<TIntVector2<ushort>>();
++            MaxSize = new FIntVector2(maxSize.X, maxSize.Y);
++            Strategy = (EPackStrategy) Ar.Read<int>();
++        }
++    }
++}
++
++public class FMutableLegacyLayoutBlock
++{
++    public FIntVector2 Min;
++    public FIntVector2 Size;
++    /** Absolute id used to match the blocks of different layouts. */
++    public int Id;
++    /** Serialised since the first version but not read by the runtime. */
++    public int Reserved;
++    public int Priority;
++
++    public FMutableLegacyLayoutBlock(FMutableArchive Ar, int version)
++    {
++        var min = Ar.Read<TIntVector2<ushort>>();
++        Min = new FIntVector2(min.X, min.Y);
++        var size = Ar.Read<TIntVector2<ushort>>();
++        Size = new FIntVector2(size.X, size.Y);
++        Id = Ar.Read<int>();
++        Reserved = Ar.Read<int>();
++        if (version >= 2)
++            Priority = Ar.Read<int>();
++        else if (version == 0)
++            Ar.Position += 1; // unused byte
++    }
++}
+diff --git a/CUE4Parse/UE4/Assets/Exports/CustomizableObject/Mutable/Legacy/FMutableLegacyModel.cs b/CUE4Parse/UE4/Assets/Exports/CustomizableObject/Mutable/Legacy/FMutableLegacyModel.cs
+new file mode 100644
+index 0000000000000000000000000000000000000000..b2f502486a74ad15572d0e53f837c5ac6e676b90
+--- /dev/null
++++ b/CUE4Parse/UE4/Assets/Exports/CustomizableObject/Mutable/Legacy/FMutableLegacyModel.cs
+@@ -0,0 +1,23 @@
++using CUE4Parse.UE4.Assets.Readers;
++using Newtonsoft.Json;
++
++namespace CUE4Parse.UE4.Assets.Exports.CustomizableObject.Mutable.Legacy;
++
++/**
++ * mu::Model of the pre-Epic Mutable runtime (Anticto Mutable 1.x for UE4, embedded data version 261).
++ * Layout: int32 version (0), then mu::PROGRAM.
++ */
++public class FMutableLegacyModel
++{
++    [JsonIgnore] public int Version;
++    /** Name used to locate the streamed rom files: "<ObjectName>_<md5(object path)>". */
++    public string? Location;
++    public FMutableLegacyProgram Program;
++
++    public FMutableLegacyModel(FMutableArchive Ar, string? location)
++    {
++        Location = location;
++        Version = Ar.Read<int>();
++        Program = new FMutableLegacyProgram(Ar, location);
++    }
++}
+diff --git a/CUE4Parse/UE4/Assets/Exports/CustomizableObject/Mutable/Legacy/FMutableLegacyParameterDesc.cs b/CUE4Parse/UE4/Assets/Exports/CustomizableObject/Mutable/Legacy/FMutableLegacyParameterDesc.cs
+new file mode 100644
+index 0000000000000000000000000000000000000000..b5e4b6ad4186cc9897a64890b256638f868f729d
+--- /dev/null
++++ b/CUE4Parse/UE4/Assets/Exports/CustomizableObject/Mutable/Legacy/FMutableLegacyParameterDesc.cs
+@@ -0,0 +1,85 @@
++using System.Runtime.InteropServices;
++using CUE4Parse.UE4.Assets.Exports.CustomizableObject.Mutable.Parameters;
++using CUE4Parse.UE4.Assets.Readers;
++using CUE4Parse.UE4.Exceptions;
++using Newtonsoft.Json;
++
++namespace CUE4Parse.UE4.Assets.Exports.CustomizableObject.Mutable.Legacy;
++
++/** mu::PARAMETER_DESC (versions 0-3) of the pre-Epic Mutable runtime. */
++public class FMutableLegacyParameterDesc
++{
++    /** Size of the serialised mu::PARAMETER_VALUE union. */
++    private const int ParameterValueSize = 56;
++
++    [JsonIgnore] public int Version;
++    public string Name;
++    public string UID = string.Empty;
++    public EParameterType Type;
++    /** bool, int, float, float[3] colour, FProjector, or ulong external image id, depending on Type. */
++    public object? DefaultValue;
++    /** Ranges, if the parameter is multi-dimensional. Indices into the program range descriptors. */
++    public uint[] Ranges = [];
++    /** Constant images describing the parameter (thumbnails). */
++    public uint[] DescImages;
++    /** For integer parameters, the description of the possible values. */
++    public FIntValueDesc[] PossibleValues;
++
++    public FMutableLegacyParameterDesc(FMutableArchive Ar)
++    {
++        Version = Ar.Read<int>();
++        Name = Ar.ReadString();
++        if (Version >= 2)
++            UID = Ar.ReadString();
++
++        var type = Ar.Read<int>();
++        Type = type switch
++        {
++            >= 0 and <= 5 => (EParameterType) type, // none, bool, int, float, colour, projector
++            6 => EParameterType.Image,
++            _ => throw new ParserException(Ar, $"Unknown Mutable parameter type {type}")
++        };
++
++        var value = Ar.ReadBytes(ParameterValueSize);
++        DefaultValue = Type switch
++        {
++            EParameterType.Bool => value[0] != 0,
++            EParameterType.Int => BitConverter.ToInt32(value, 0),
++            EParameterType.Float => BitConverter.ToSingle(value, 0),
++            EParameterType.Color => new[] { BitConverter.ToSingle(value, 0), BitConverter.ToSingle(value, 4), BitConverter.ToSingle(value, 8) },
++            EParameterType.Projector => MemoryMarshal.Read<FProjector>(value),
++            EParameterType.Image => BitConverter.ToUInt64(value, 0),
++            _ => null
++        };
++
++        if (Version >= 3)
++            Ranges = Ar.ReadArray<uint>();
++
++        DescImages = Ar.ReadArray<uint>();
++
++        if (Version >= 1)
++        {
++            PossibleValues = Ar.ReadArray(() => new FIntValueDesc(Ar));
++        }
++        else
++        {
++            PossibleValues = Ar.ReadArray<short>().Select(v => new FIntValueDesc(v)).ToArray();
++        }
++    }
++}
++
++/** mu::RANGE_DESC (versions 0-1) of the pre-Epic Mutable runtime. */
++public class FMutableLegacyRangeDesc
++{
++    [JsonIgnore] public int Version;
++    public string Name;
++    public string UID = string.Empty;
++
++    public FMutableLegacyRangeDesc(FMutableArchive Ar)
++    {
++        Version = Ar.Read<int>();
++        Name = Ar.ReadString();
++        if (Version >= 1)
++            UID = Ar.ReadString();
++    }
++}
+diff --git a/CUE4Parse/UE4/Assets/Exports/CustomizableObject/Mutable/Legacy/FMutableLegacyProgram.cs b/CUE4Parse/UE4/Assets/Exports/CustomizableObject/Mutable/Legacy/FMutableLegacyProgram.cs
+new file mode 100644
+index 0000000000000000000000000000000000000000..84aa90d03c93aa88399a7b93853346ef763b33eb
+--- /dev/null
++++ b/CUE4Parse/UE4/Assets/Exports/CustomizableObject/Mutable/Legacy/FMutableLegacyProgram.cs
+@@ -0,0 +1,125 @@
++using CUE4Parse.UE4.Assets.Exports.CustomizableObject.Mutable.Parameters;
++using CUE4Parse.UE4.Assets.Readers;
++using CUE4Parse.UE4.Exceptions;
++using CUE4Parse.UE4.Objects.Core.Math;
++using CUE4Parse.UE4.Objects.Engine.Curves;
++using Newtonsoft.Json;
++
++namespace CUE4Parse.UE4.Assets.Exports.CustomizableObject.Mutable.Legacy;
++
++/**
++ * mu::PROGRAM of the pre-Epic Mutable runtime. Large members (byte code, constant mesh locations, switch case lists,
++ * clip shapes) are kept in memory but only summarised in json.
++ */
++public class FMutableLegacyProgram
++{
++    /** Location in ByteCode of the beginning of each operation. */
++    [JsonIgnore] public uint[] OpAddress;
++    /** Byte-coded operations: uint16 EMutableLegacyOpType followed by the op arguments. */
++    [JsonIgnore] public byte[] ByteCode;
++    public int OpCount;
++    public int ByteCodeSize;
++    /** Number of operations of each type in the byte code. */
++    public Dictionary<string, int> OpTypeCounts;
++
++    public FState[] States;
++    /** Streamed data blocks (MutableStreamedData/*.mut). */
++    public FMutableLegacyRom[] Roms;
++
++    /** Location of every constant resource: rom index and index inside the rom. */
++    [JsonIgnore] public FMutableLegacyConstantResource[] ConstantImages;
++    [JsonIgnore] public FMutableLegacyConstantResource[] ConstantVolumes;
++    [JsonIgnore] public FMutableLegacyConstantResource[] ConstantMeshes;
++    public int ConstantImageCount;
++    public int ConstantVolumeCount;
++    public int ConstantMeshCount;
++
++    public string[] ConstantStrings;
++    public FMutableLegacyLayout?[] ConstantLayouts;
++    public FProjector[] ConstantProjectors;
++    public FMatrix[] ConstantMatrices;
++    [JsonIgnore] public FShape[] ConstantShapes;
++    public int ConstantShapeCount;
++    public Dictionary<string, int> ConstantShapeTypeCounts;
++    public FRichCurve[] ConstantCurves;
++    /** Switch cases ({int32 condition, uint32 address} packed in a uint64), one list per switch op. */
++    [JsonIgnore] public ulong[][] ConstantLists;
++    public int ConstantListCount;
++    public int ConstantListEntryCount;
++    public FMutableLegacySkeleton?[] ConstantSkeletons;
++    public FMutableLegacyDescEntry[] DescEntries;
++
++    /** Parameters of the model. The value stored here is the default value. */
++    public FMutableLegacyParameterDesc[] Parameters;
++    public FMutableLegacyRangeDesc[] Ranges;
++    public ushort[][] ParameterLists;
++
++    public FMutableLegacyProgram(FMutableArchive Ar, string? location)
++    {
++        OpAddress = Ar.ReadArray<uint>();
++        ByteCode = Ar.ReadArray<byte>();
++        OpCount = OpAddress.Length;
++        ByteCodeSize = ByteCode.Length;
++        OpTypeCounts = CountOpTypes();
++
++        States = Ar.ReadArray(() => new FState(Ar));
++
++        // Loaded rom blocks: always null in cooked data (UnloadExternal runs before saving).
++        var romData = Ar.ReadPtrArray<object>(() => throw new ParserException(Ar, "Embedded Mutable RomData is not supported"));
++        if (romData.Any(r => r != null))
++            throw new ParserException(Ar, "Embedded Mutable RomData is not supported");
++
++        Roms = Ar.ReadArray(() => new FMutableLegacyRom(Ar, location));
++
++        ConstantImages = Ar.ReadArray<FMutableLegacyConstantResource>();
++        ConstantVolumes = Ar.ReadArray<FMutableLegacyConstantResource>();
++        ConstantMeshes = Ar.ReadArray<FMutableLegacyConstantResource>();
++        ConstantImageCount = ConstantImages.Length;
++        ConstantVolumeCount = ConstantVolumes.Length;
++        ConstantMeshCount = ConstantMeshes.Length;
++
++        ConstantStrings = Ar.ReadArray(Ar.ReadString);
++        ConstantLayouts = Ar.ReadPtrArray(() => new FMutableLegacyLayout(Ar));
++        ConstantProjectors = Ar.ReadArray<FProjector>();
++        ConstantMatrices = Ar.ReadArray(() => new FMatrix(Ar, false));
++        ConstantShapes = Ar.ReadArray<FShape>();
++        ConstantShapeCount = ConstantShapes.Length;
++        ConstantShapeTypeCounts = ConstantShapes.GroupBy(s => s.Type).OrderBy(g => g.Key).ToDictionary(g => g.Key.ToString(), g => g.Count());
++        ConstantCurves = Ar.ReadArray(() => new FRichCurve { Keys = Ar.ReadArray(() => new FRichCurveKey(Ar)), DefaultValue = Ar.Read<float>() });
++        ConstantLists = Ar.ReadArray(Ar.ReadArray<ulong>);
++        ConstantListCount = ConstantLists.Length;
++        ConstantListEntryCount = ConstantLists.Sum(l => l.Length);
++        ConstantSkeletons = Ar.ReadPtrArray(() => new FMutableLegacySkeleton(Ar));
++        DescEntries = Ar.ReadArray(() => new FMutableLegacyDescEntry(Ar));
++
++        Parameters = Ar.ReadArray(() => new FMutableLegacyParameterDesc(Ar));
++        Ranges = Ar.ReadArray(() => new FMutableLegacyRangeDesc(Ar));
++        ParameterLists = Ar.ReadArray(Ar.ReadArray<ushort>);
++    }
++
++    public EMutableLegacyOpType GetOpType(uint at)
++    {
++        if (at >= OpAddress.Length || OpAddress[at] + 2 > ByteCode.Length) return EMutableLegacyOpType.NONE;
++        return (EMutableLegacyOpType) BitConverter.ToUInt16(ByteCode, (int) OpAddress[at]);
++    }
++
++    private Dictionary<string, int> CountOpTypes()
++    {
++        var counts = new SortedDictionary<ushort, int>();
++        for (uint at = 0; at < OpAddress.Length; at++)
++        {
++            var type = (ushort) GetOpType(at);
++            counts[type] = counts.TryGetValue(type, out var count) ? count + 1 : 1;
++        }
++
++        return counts.ToDictionary(
++            kv => Enum.IsDefined(typeof(EMutableLegacyOpType), kv.Key) ? ((EMutableLegacyOpType) kv.Key).ToString() : $"Unknown_{kv.Key}",
++            kv => kv.Value);
++    }
++}
++
++public struct FMutableLegacyConstantResource
++{
++    public uint Rom;
++    public uint Index;
++}
+diff --git a/CUE4Parse/UE4/Assets/Exports/CustomizableObject/Mutable/Legacy/FMutableLegacyRom.cs b/CUE4Parse/UE4/Assets/Exports/CustomizableObject/Mutable/Legacy/FMutableLegacyRom.cs
+new file mode 100644
+index 0000000000000000000000000000000000000000..0d5d41e41d203b3f58796cf0435e18d9658f81f9
+--- /dev/null
++++ b/CUE4Parse/UE4/Assets/Exports/CustomizableObject/Mutable/Legacy/FMutableLegacyRom.cs
+@@ -0,0 +1,25 @@
++using CUE4Parse.UE4.Assets.Readers;
++
++namespace CUE4Parse.UE4.Assets.Exports.CustomizableObject.Mutable.Legacy;
++
++/** mu::PROGRAM::ROM: block of constant resources streamed from MutableStreamedData/<Location>-k0-k1-k2-k3.mut. */
++public class FMutableLegacyRom
++{
++    public string Id;
++    /** Size of the streamed file in bytes. */
++    public ulong Size;
++    /** Streamed file name inside MutableStreamedData (null when the model location is unknown). */
++    public string? FileName;
++
++    public FMutableLegacyRom(FMutableArchive Ar, string? location)
++    {
++        var key0 = Ar.Read<uint>();
++        var key1 = Ar.Read<uint>();
++        var key2 = Ar.Read<uint>();
++        var key3 = Ar.Read<uint>();
++        Size = Ar.Read<ulong>();
++        Id = $"{key0:x8}-{key1:x8}-{key2:x8}-{key3:x8}";
++        if (location != null)
++            FileName = $"{location.Replace('/', '_')}-{Id}.mut";
++    }
++}
+diff --git a/CUE4Parse/UE4/Assets/Exports/CustomizableObject/Mutable/Legacy/FMutableLegacySkeleton.cs b/CUE4Parse/UE4/Assets/Exports/CustomizableObject/Mutable/Legacy/FMutableLegacySkeleton.cs
+new file mode 100644
+index 0000000000000000000000000000000000000000..f2d00f3b89a636fcc2cc25650953f8bf0e248fc3
+--- /dev/null
++++ b/CUE4Parse/UE4/Assets/Exports/CustomizableObject/Mutable/Legacy/FMutableLegacySkeleton.cs
+@@ -0,0 +1,23 @@
++using CUE4Parse.UE4.Assets.Readers;
++using CUE4Parse.UE4.Objects.Core.Math;
++using Newtonsoft.Json;
++
++namespace CUE4Parse.UE4.Assets.Exports.CustomizableObject.Mutable.Legacy;
++
++/** mu::Skeleton (version 0) of the pre-Epic Mutable runtime. */
++public class FMutableLegacySkeleton
++{
++    [JsonIgnore] public int Version;
++    public string[] BoneNames;
++    /** One 4x4 matrix per bone, omitted from json. */
++    [JsonIgnore] public FMatrix[] BoneTransforms;
++    public short[] BoneParents;
++
++    public FMutableLegacySkeleton(FMutableArchive Ar)
++    {
++        Version = Ar.Read<int>();
++        BoneNames = Ar.ReadArray(Ar.ReadString);
++        BoneTransforms = Ar.ReadArray(() => new FMatrix(Ar, false));
++        BoneParents = Ar.ReadArray<short>();
++    }
++}
+diff --git a/CUE4Parse/UE4/Assets/Exports/CustomizableObject/Mutable/Parameters/FIntValueDesc.cs b/CUE4Parse/UE4/Assets/Exports/CustomizableObject/Mutable/Parameters/FIntValueDesc.cs
+index 6d81af7b7d4c0102f1161ec239a0464554484dfb..4a5f6de22f40d1c67bdffa45627a4b6b3bb45eed 100644
+--- a/CUE4Parse/UE4/Assets/Exports/CustomizableObject/Mutable/Parameters/FIntValueDesc.cs
++++ b/CUE4Parse/UE4/Assets/Exports/CustomizableObject/Mutable/Parameters/FIntValueDesc.cs
+@@ -8,6 +8,12 @@ public class FIntValueDesc
+     public short Value;
+     public string Name;
+     
++    public FIntValueDesc(short value, string name = "")
++    {
++        Value = value;
++        Name = name;
++    }
++
+     public FIntValueDesc(FMutableArchive Ar)
+     {
+         Value = Ar.Read<short>();
+diff --git a/CUE4Parse/UE4/Assets/Exports/CustomizableObject/UCustomizableObject.cs b/CUE4Parse/UE4/Assets/Exports/CustomizableObject/UCustomizableObject.cs
+index db2d8a94900cbdb5d88c4e87cfda6b42c5b95ccf..030ed464f3098bb67a868c58fbe6c26e90262b75 100644
+--- a/CUE4Parse/UE4/Assets/Exports/CustomizableObject/UCustomizableObject.cs
++++ b/CUE4Parse/UE4/Assets/Exports/CustomizableObject/UCustomizableObject.cs
+@@ -1,4 +1,7 @@
++using System.Security.Cryptography;
++using System.Text;
+ using CUE4Parse.UE4.Assets.Exports.CustomizableObject.Mutable;
++using CUE4Parse.UE4.Assets.Exports.CustomizableObject.Mutable.Legacy;
+ using CUE4Parse.UE4.Assets.Objects;
+ using CUE4Parse.UE4.Assets.Readers;
+ using CUE4Parse.UE4.Versions;
+@@ -8,13 +11,29 @@ namespace CUE4Parse.UE4.Assets.Exports.CustomizableObject;
+ 
+ public class UCustomizableObject : UObject
+ {
++    /** Pre-Epic Mutable: models are saved with this embedded data version. */
++    private const int LegacyEmbeddedDataVersion = 261;
++    /** Pre-Epic Mutable: a bHasModel flag follows InternalVersion after this version. */
++    private const int LegacyHasModelFlagVersion = 90;
++
+     public long InternalVersion;
+     public FModel? Model;
+ 
++    public bool? bHasModel;
++    public int? EmbeddedDataVersion;
++    /** Model of the pre-Epic (Anticto 1.x, UE4) Mutable runtime. */
++    public FMutableLegacyModel? LegacyModel;
++
+     public override void Deserialize(FAssetArchive Ar, long validPos)
+     {
+         base.Deserialize(Ar, validPos);
+ 
++        if (Ar.Game is GAME_SuperPeople)
++        {
++            DeserializeLegacy(Ar, validPos);
++            return;
++        }
++
+         InternalVersion = Ar.Game >= GAME_UE5_6 ? Ar.Read<long>() : Ar.Read<int>();
+         if (InternalVersion != -1)
+             Model = new FModel(new FMutableArchive(Ar));
+@@ -25,12 +44,72 @@ public override void Deserialize(FAssetArchive Ar, long validPos)
+         }
+     }
+ 
++    private void DeserializeLegacy(FAssetArchive Ar, long validPos)
++    {
++        try
++        {
++            InternalVersion = Ar.Read<int>();
++            bHasModel = InternalVersion <= LegacyHasModelFlagVersion || Ar.Read<int>() != 0;
++            if (bHasModel != true) return;
++
++            EmbeddedDataVersion = Ar.Read<int>();
++            if (EmbeddedDataVersion != LegacyEmbeddedDataVersion)
++            {
++                Log.Warning("CustomizableObject {Name}: unsupported Mutable embedded data version {Version}, skipping model", Name, EmbeddedDataVersion);
++                Ar.Position = validPos;
++                return;
++            }
++
++            LegacyModel = new FMutableLegacyModel(new FMutableArchive(Ar), GetLegacyModelLocation());
++        }
++        catch (Exception e)
++        {
++            Log.Error(e, "CustomizableObject {Name}: failed to read legacy Mutable model, skipping it", Name);
++            LegacyModel = null;
++            Ar.Position = validPos;
++        }
++    }
++
++    /** UCustomizableObject::GetFileName of pre-Epic Mutable: Name + "_" + MD5(path name), the prefix of the streamed .mut files. */
++    private string? GetLegacyModelLocation()
++    {
++        var packageName = Owner?.Name;
++        if (string.IsNullOrEmpty(packageName)) return null;
++
++        // Mounted package names look like "<Project>/Content/Path/Asset", the hashed path name is "/Game/Path/Asset.Asset".
++        if (!packageName.StartsWith('/'))
++        {
++            var contentIndex = packageName.IndexOf("/Content/", StringComparison.OrdinalIgnoreCase);
++            if (contentIndex < 0) return null;
++            packageName = "/Game/" + packageName[(contentIndex + "/Content/".Length)..];
++        }
++
++        var hash = MD5.HashData(Encoding.UTF8.GetBytes($"{packageName}.{Name}"));
++        return $"{Name}_{Convert.ToHexString(hash).ToLowerInvariant()}";
++    }
++
+     protected internal override void WriteJson(JsonWriter writer, JsonSerializer serializer)
+     {
+         base.WriteJson(writer, serializer);
+         writer.WritePropertyName(nameof(InternalVersion));
+         writer.WriteValue(InternalVersion);
++
++        if (bHasModel != null)
++        {
++            writer.WritePropertyName(nameof(bHasModel));
++            writer.WriteValue(bHasModel.Value);
++        }
++
++        if (EmbeddedDataVersion != null)
++        {
++            writer.WritePropertyName(nameof(EmbeddedDataVersion));
++            writer.WriteValue(EmbeddedDataVersion.Value);
++        }
++
+         writer.WritePropertyName(nameof(Model));
+-        serializer.Serialize(writer, Model);
++        if (LegacyModel != null)
++            serializer.Serialize(writer, LegacyModel);
++        else
++            serializer.Serialize(writer, Model);
+     }
+ }
+diff --git a/CUE4Parse/UE4/Assets/Exports/Niagara/FNiagaraShaderScript.cs b/CUE4Parse/UE4/Assets/Exports/Niagara/FNiagaraShaderScript.cs
+index b1861bc86ce2a7d75397e06d2f0c626f4f3958d7..42836bd609bc2cf2f2a86e8e5eed7ea3f2dc28b5 100644
+--- a/CUE4Parse/UE4/Assets/Exports/Niagara/FNiagaraShaderScript.cs
++++ b/CUE4Parse/UE4/Assets/Exports/Niagara/FNiagaraShaderScript.cs
+@@ -16,7 +16,10 @@ public class FNiagaraShaderScript
+     public FNiagaraShaderScript(FArchive Ar)
+     {
+         var bCooked = Ar.ReadBoolean();
+-        NumPermutations = Ar.Read<int>();
++        if (Ar.Game != GAME_SuperPeople) // UE4.25 build used by this game has no NumPermutations
++        {
++            NumPermutations = Ar.Read<int>();
++        }
+         if (Ar.Game is >= GAME_UE4_26 and < GAME_UE5_0)
+         {
+             ShaderStageToPermutation = Ar.ReadMap(Ar.Read<int>, Ar.Read<int>);
+diff --git a/CUE4Parse/UE4/Objects/UObject/ObjectResource.cs b/CUE4Parse/UE4/Objects/UObject/ObjectResource.cs
+index f1d48dd8dce81180c8efce8f7e5bb09bd8844c4d..641cbea6932a6e842878fa790100ab216e926ed0 100644
+--- a/CUE4Parse/UE4/Objects/UObject/ObjectResource.cs
++++ b/CUE4Parse/UE4/Objects/UObject/ObjectResource.cs
+@@ -219,7 +219,11 @@ public class FObjectExport : FObjectResource
+         public long ScriptSerializationEndOffset;
+         public ulong? PublicExportHash;
+ 
+-        public string ClassName;
++        /// <summary>
++        /// Resolved lazily: resolving an imported class loads its package, so doing it while reading the
++        /// export map makes every package load recursively load the packages of all its export classes.
++        /// </summary>
++        public string ClassName => ClassIndex?.Name!;
+ 
+ #pragma warning disable 8618
+         public FObjectExport()
+@@ -329,8 +333,6 @@ public FObjectExport(FAssetArchive Ar)
+                 ScriptSerializationStartOffset = 0;
+                 ScriptSerializationEndOffset = 0;
+             }
+-
+-            ClassName = ClassIndex.Name;
+         }
+ 
+         public override string ToString()
+diff --git a/CUE4Parse/UE4/Versions/EGame.cs b/CUE4Parse/UE4/Versions/EGame.cs
+index 9fd2ab77a6333eae3cfc04d880201bc2cd7a87dd..80a36bc4d7aa0b631506319d5076a3fd9025d034 100644
+--- a/CUE4Parse/UE4/Versions/EGame.cs
++++ b/CUE4Parse/UE4/Versions/EGame.cs
+@@ -98,6 +98,7 @@ public enum EGame : uint
+         GAME_Placeholder3 = GAME_UE4_25 + 13,
+         GAME_Back4Blood = GAME_UE4_25 + 14, // UE 4.25 Plus
+         GAME_NiNoKuniCrossWorlds = GAME_UE4_25 + 15,
++        GAME_SuperPeople = GAME_UE4_25 + 16,
+     GAME_UE4_26 = GameUtils.GameUe4Base + (26 << 16),
+         GAME_GTATheTrilogyDefinitiveEdition = GAME_UE4_26 + 1,
+         GAME_UE4_26_Plus = GAME_UE4_26 + 2,
+diff --git a/CUE4Parse/UE4/Versions/VersionContainer.cs b/CUE4Parse/UE4/Versions/VersionContainer.cs
+index c7ebfd4305036af61abd72581786b38776cab6c7..6cdeae9c8720a4e11da611b0a5f157e9d1aa4299 100644
+--- a/CUE4Parse/UE4/Versions/VersionContainer.cs
++++ b/CUE4Parse/UE4/Versions/VersionContainer.cs
+@@ -81,7 +81,7 @@ private void InitOptions()
+             Options["SkeletalMesh.HasRayTracingData"] = Game is >= GAME_UE4_27 or GAME_UE4_25_Plus or GAME_UE4_26_Plus or GAME_HellLetLoose or GAME_DarkPicturesAnthologyManofMedan or GAME_DarkPicturesAnthologyTheDevilinMe or GAME_DarkPicturesAnthologyLittleHope or GAME_Back4Blood;
+             Options["StaticMesh.HasLODsShareStaticLighting"] = Game is < GAME_UE4_15 or >= GAME_UE4_16; // Exists in all engine versions except UE4.15
+             Options["StaticMesh.HasRayTracingGeometry"] = Game >= GAME_UE4_25;
+-            Options["StaticMesh.HasVisibleInRayTracing"] = Game >= GAME_UE4_26 || Game is GAME_Back4Blood;
++            Options["StaticMesh.HasVisibleInRayTracing"] = Game >= GAME_UE4_26 || Game is GAME_Back4Blood or GAME_SuperPeople;
+             Options["StaticMesh.UseNewCookedFormat"] = Game >= GAME_UE4_23;
+             Options["VirtualTextures"] = Game >= GAME_UE4_23;
+             Options["SoundWave.UseAudioStreaming"] = Game >= GAME_UE4_25 && OverrideUseAudioStreaming(); // A lot of games use this, but some don't, which causes issues.
